@@ -22,7 +22,8 @@
   const DB_VERSION = 1;
   const STORE_NAME = 'settings';
   const API_URL = 'https://api.anthropic.com/v1/messages';
-  const MODEL = 'claude-sonnet-4-20250514';
+  const MODEL = 'claude-haiku-4-5-20251001';
+  const SESSION_TOKEN_KEY = 'duread-session-token';
 
   // ===================
   // DOM Elements
@@ -185,6 +186,34 @@
       return decoder.decode(decrypted);
     } catch (error) {
       throw new Error('Invalid passphrase');
+    }
+  }
+
+  // ===================
+  // Session Token Cache
+  // ===================
+  function cacheToken(token) {
+    try {
+      sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+    } catch (e) {
+      // sessionStorage may be unavailable in some contexts
+      console.warn('Could not cache token to sessionStorage:', e);
+    }
+  }
+
+  function getCachedToken() {
+    try {
+      return sessionStorage.getItem(SESSION_TOKEN_KEY);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearCachedToken() {
+    try {
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    } catch (e) {
+      // Ignore errors
     }
   }
 
@@ -624,6 +653,7 @@ Important instructions:
       await dbSet('encryptedApiKey', encrypted);
 
       state.apiKey = apiKey;
+      cacheToken(apiKey); // Cache for session
 
       // Clear input fields
       elements.apiKeyInput.value = '';
@@ -655,6 +685,7 @@ Important instructions:
 
       const apiKey = await decryptApiKey(encrypted, passphrase);
       state.apiKey = apiKey;
+      cacheToken(apiKey); // Cache for session
 
       elements.unlockPassphrase.value = '';
       closeUnlockModal();
@@ -673,6 +704,7 @@ Important instructions:
 
     try {
       await dbClear();
+      clearCachedToken();
       state.apiKey = null;
 
       elements.apiKeyInput.value = '';
@@ -821,7 +853,7 @@ Important instructions:
   // ===================
   function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
+      navigator.serviceWorker.register('./sw.js')
         .then((registration) => {
           console.log('Service Worker registered:', registration.scope);
         })
@@ -857,8 +889,15 @@ Important instructions:
     // Setup event listeners
     setupEventListeners();
 
-    // Check API key status
-    const hasKey = await checkApiKeyStatus();
+    // Try to restore token from session cache
+    const cachedToken = getCachedToken();
+    if (cachedToken) {
+      state.apiKey = cachedToken;
+      updateKeyStatus();
+    }
+
+    // Check API key status (if not already unlocked from cache)
+    const hasKey = state.apiKey ? true : await checkApiKeyStatus();
 
     // Handle share target
     handleShareTarget();
