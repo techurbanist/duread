@@ -1,11 +1,15 @@
-const CACHE_NAME = 'duread-v1';
+const CACHE_NAME = 'duread-v2';
+
+// Determine base path from service worker location (works for subdirectory deployments)
+const BASE_PATH = self.location.pathname.replace(/sw\.js$/, '');
+
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/app.js',
-  '/manifest.json',
-  '/icon-192.svg',
-  '/icon-512.svg'
+  BASE_PATH,
+  BASE_PATH + 'index.html',
+  BASE_PATH + 'app.js',
+  BASE_PATH + 'manifest.json',
+  BASE_PATH + 'icon-192.svg',
+  BASE_PATH + 'icon-512.svg'
 ];
 
 // Install event - cache static assets
@@ -47,7 +51,7 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
-        .catch(() => caches.match('/index.html'))
+        .catch(() => caches.match(BASE_PATH + 'index.html'))
     );
     return;
   }

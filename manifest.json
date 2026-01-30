@@ -2,7 +2,7 @@
   "name": "DuRead - Chinese Reading Helper",
   "short_name": "DuRead",
   "description": "Learn Chinese by reading content you already consume. Get translations with word breakdowns, pinyin, and pronunciation.",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0d0d14",
