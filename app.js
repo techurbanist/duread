@@ -1,7 +1,7 @@
 // DuRead - Chinese Reading Helper
 // Progressive Web App for learning Chinese through reading
 // Version: Bump this when making changes
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 
 (function() {
   'use strict';
@@ -868,25 +868,134 @@ Important instructions:
   }
 
   // ===================
+  // URL Content Fetching
+  // ===================
+  const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+
+  function extractUrlFromText(text) {
+    const urlRegex = /https?:\/\/[^\s]+/gi;
+    const matches = text.match(urlRegex);
+    return matches ? matches[0] : null;
+  }
+
+  async function fetchUrlContent(url) {
+    try {
+      const proxyUrl = CORS_PROXY + encodeURIComponent(url);
+      const response = await fetch(proxyUrl);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status}`);
+      }
+
+      const html = await response.text();
+      return extractMainContent(html);
+    } catch (error) {
+      console.error('Error fetching URL:', error);
+      throw new Error('Could not fetch article content');
+    }
+  }
+
+  function extractMainContent(html) {
+    // Create a DOM parser
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    // Remove unwanted elements
+    const removeSelectors = [
+      'script', 'style', 'nav', 'header', 'footer', 'aside',
+      'iframe', 'noscript', 'svg', 'form', 'button',
+      '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]',
+      '.nav', '.navbar', '.menu', '.sidebar', '.footer', '.header',
+      '.advertisement', '.ad', '.ads', '.social', '.share', '.comments',
+      '.cookie', '.popup', '.modal', '.newsletter'
+    ];
+
+    removeSelectors.forEach(selector => {
+      doc.querySelectorAll(selector).forEach(el => el.remove());
+    });
+
+    // Try to find main content area
+    const contentSelectors = [
+      'article', 'main', '[role="main"]',
+      '.post-content', '.article-content', '.entry-content',
+      '.content', '.post', '.article'
+    ];
+
+    let contentEl = null;
+    for (const selector of contentSelectors) {
+      contentEl = doc.querySelector(selector);
+      if (contentEl && contentEl.textContent.trim().length > 200) {
+        break;
+      }
+    }
+
+    // Fall back to body if no content area found
+    if (!contentEl) {
+      contentEl = doc.body;
+    }
+
+    // Extract text content
+    let text = contentEl.textContent || '';
+
+    // Clean up whitespace
+    text = text
+      .replace(/\s+/g, ' ')
+      .replace(/\n\s*\n/g, '\n\n')
+      .trim();
+
+    // Limit to reasonable length (Claude has context limits)
+    const maxLength = 8000;
+    if (text.length > maxLength) {
+      text = text.substring(0, maxLength) + '...\n\n[Content truncated]';
+    }
+
+    return text;
+  }
+
+  // ===================
   // Share Target Handling
   // ===================
-  function handleShareTarget() {
+  async function handleShareTarget() {
     const params = new URLSearchParams(window.location.search);
     const sharedText = params.get('text');
     const sharedTitle = params.get('title');
     const sharedUrl = params.get('url');
 
-    // Combine shared content
+    // Clear URL params to avoid re-processing on refresh
+    if (params.has('text') || params.has('title') || params.has('url')) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    // Combine shared content to check for URL
     let content = '';
     if (sharedTitle) content += sharedTitle + '\n\n';
     if (sharedText) content += sharedText;
     if (sharedUrl && !content.includes(sharedUrl)) content += '\n' + sharedUrl;
 
-    if (content.trim()) {
-      elements.textInput.value = content.trim();
+    if (!content.trim()) return;
 
-      // Clear URL params to avoid re-processing on refresh
-      window.history.replaceState({}, '', window.location.pathname);
+    // Check if there's a URL to fetch
+    const url = sharedUrl || extractUrlFromText(content);
+
+    if (url) {
+      // Show loading state
+      elements.textInput.value = `Fetching article from:\n${url}\n\nPlease wait...`;
+      elements.textInput.disabled = true;
+
+      try {
+        const articleText = await fetchUrlContent(url);
+        const title = sharedTitle || 'Article';
+        elements.textInput.value = `${title}\n\n${articleText}`;
+        showToast('Article content loaded', 'success');
+      } catch (error) {
+        // Fall back to showing original shared content
+        elements.textInput.value = content.trim();
+        showToast('Could not fetch article - showing shared text', 'error');
+      }
+
+      elements.textInput.disabled = false;
+    } else {
+      elements.textInput.value = content.trim();
     }
   }
 
@@ -946,8 +1055,8 @@ Important instructions:
     // Check API key status (if not already unlocked from cache)
     const hasKey = state.apiKey ? true : await checkApiKeyStatus();
 
-    // Handle share target
-    handleShareTarget();
+    // Handle share target (may fetch URL content)
+    await handleShareTarget();
 
     // If we have an API key stored but not unlocked, and there's shared content, prompt unlock
     if (hasKey && !state.apiKey && elements.textInput.value.trim()) {
