@@ -1,5 +1,7 @@
 // DuRead - Chinese Reading Helper
 // Progressive Web App for learning Chinese through reading
+// Version: Bump this when making changes
+const APP_VERSION = '1.1.0';
 
 (function() {
   'use strict';
@@ -11,7 +13,8 @@
     direction: 'en-zh', // 'en-zh' or 'zh-en'
     apiKey: null, // Decrypted API key for current session
     sentences: [], // Array of { id, source, status, translation, pinyin, words }
-    isTranslating: false,
+    isTranslating: false, // Flag to ensure sequential translation
+    translationQueue: [], // Queue of sentences waiting to be translated
     observer: null, // Intersection Observer instance
   };
 
@@ -47,6 +50,7 @@
     unlockBtn: document.getElementById('unlockBtn'),
     directionBtns: document.querySelectorAll('.direction-btn'),
     toast: document.getElementById('toast'),
+    versionTag: document.getElementById('versionTag'),
   };
 
   // ===================
@@ -500,6 +504,10 @@ Important instructions:
       state.observer.disconnect();
     }
 
+    // Reset queue
+    state.translationQueue = [];
+    state.isTranslating = false;
+
     const options = {
       root: elements.outputSection,
       rootMargin: '200px 0px', // Prefetch 200px ahead
@@ -513,15 +521,38 @@ Important instructions:
           const sentence = state.sentences.find(s => s.id === sentenceId);
 
           if (sentence && sentence.status === 'pending') {
-            triggerTranslation(sentence);
+            queueTranslation(sentence);
           }
         }
       });
     }, options);
   }
 
-  async function triggerTranslation(sentence) {
+  // Queue a sentence for translation (ensures sequential processing)
+  function queueTranslation(sentence) {
     if (sentence.status !== 'pending') return;
+
+    // Check if already in queue
+    if (state.translationQueue.includes(sentence)) return;
+
+    state.translationQueue.push(sentence);
+    processTranslationQueue();
+  }
+
+  // Process queue one sentence at a time
+  async function processTranslationQueue() {
+    if (state.isTranslating) return;
+    if (state.translationQueue.length === 0) return;
+
+    state.isTranslating = true;
+    const sentence = state.translationQueue.shift();
+
+    // Double-check status in case it changed
+    if (sentence.status !== 'pending') {
+      state.isTranslating = false;
+      processTranslationQueue();
+      return;
+    }
 
     sentence.status = 'loading';
     updateSentenceBlock(sentence);
@@ -539,6 +570,10 @@ Important instructions:
     }
 
     updateSentenceBlock(sentence);
+
+    state.isTranslating = false;
+    // Process next in queue
+    processTranslationQueue();
   }
 
   // ===================
@@ -551,8 +586,15 @@ Important instructions:
     }
 
     if (!state.apiKey) {
-      showToast('Please configure your API key first', 'error');
-      openSettings();
+      // Check if there's an encrypted key that needs unlocking
+      const hasEncryptedKey = await dbGet('encryptedApiKey');
+      if (hasEncryptedKey) {
+        showToast('Please unlock your API key first', 'error');
+        openUnlockModal();
+      } else {
+        showToast('Please configure your API key first', 'error');
+        openSettings();
+      }
       return;
     }
 
@@ -880,6 +922,11 @@ Important instructions:
   // Initialization
   // ===================
   async function init() {
+    // Display version
+    if (elements.versionTag) {
+      elements.versionTag.textContent = 'v' + APP_VERSION;
+    }
+
     // Register service worker
     registerServiceWorker();
 
