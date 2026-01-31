@@ -1,4 +1,5 @@
-const CACHE_NAME = 'duread-v2';
+// Cache version: Bump this when app files change to force update
+const CACHE_NAME = 'duread-v3';
 
 // Determine base path from service worker location (works for subdirectory deployments)
 const BASE_PATH = self.location.pathname.replace(/sw\.js$/, '');
