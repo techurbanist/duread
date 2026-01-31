@@ -86,6 +86,14 @@
       color: var(--text-primary);
     }
 
+    .version-tag {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      align-self: flex-end;
+      margin-bottom: 2px;
+    }
+
     .header-controls {
       display: flex;
       align-items: center;
@@ -646,6 +654,7 @@
     <div class="logo">
       <span class="logo-char">读</span>
       <span class="logo-text">DuRead</span>
+      <span class="version-tag" id="versionTag"></span>
     </div>
     <div class="header-controls">
       <div class="direction-toggle">
