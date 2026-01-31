@@ -144,6 +144,25 @@
       color: var(--text-primary);
     }
 
+    .library-btn {
+      width: 40px;
+      height: 40px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    .library-btn:hover {
+      background-color: var(--bg-tertiary);
+      color: var(--text-primary);
+    }
+
     /* Main Content */
     .main {
       flex: 1;
@@ -604,6 +623,138 @@
       background-color: rgba(255, 107, 107, 0.1);
     }
 
+    /* Library Modal */
+    .library-modal {
+      max-width: 500px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .new-text-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      margin-bottom: 16px;
+    }
+
+    .library-list {
+      flex: 1;
+      overflow-y: auto;
+      margin: 0 -24px -24px -24px;
+      padding: 0 24px 24px 24px;
+    }
+
+    .library-empty {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--text-secondary);
+    }
+
+    .library-empty p {
+      margin-bottom: 8px;
+    }
+
+    .text-card {
+      background-color: var(--bg-primary);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+
+    .text-card:hover {
+      border-color: var(--accent);
+    }
+
+    .text-card.active {
+      border-color: var(--accent);
+      background-color: rgba(78, 205, 196, 0.1);
+    }
+
+    .text-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .text-card-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+      line-height: 1.4;
+      flex: 1;
+      word-break: break-word;
+    }
+
+    .text-card-delete {
+      width: 28px;
+      height: 28px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.2s ease;
+    }
+
+    .text-card-delete:hover {
+      background-color: rgba(255, 107, 107, 0.1);
+      color: var(--error);
+    }
+
+    .text-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .text-card-progress {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .progress-bar {
+      width: 60px;
+      height: 4px;
+      background-color: var(--bg-tertiary);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background-color: var(--accent);
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+
+    .text-card-date {
+      color: var(--text-muted);
+    }
+
+    .text-card-direction {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 6px;
+      background-color: var(--bg-tertiary);
+      border-radius: 4px;
+      color: var(--text-secondary);
+    }
+
     /* Toast Notification */
     .toast {
       position: fixed;
@@ -661,6 +812,12 @@
         <button class="direction-btn active" data-direction="en-zh" aria-label="English to Chinese">EN→中</button>
         <button class="direction-btn" data-direction="zh-en" aria-label="Chinese to English">中→EN</button>
       </div>
+      <button class="library-btn" id="libraryBtn" aria-label="My Texts">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+      </button>
       <button class="settings-btn" aria-label="Settings">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"></circle>
@@ -773,6 +930,36 @@
 
       <div class="btn-group">
         <button class="btn btn-primary" id="unlockBtn">Unlock</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Library Modal -->
+  <div class="modal-overlay" id="libraryModal">
+    <div class="modal library-modal" role="dialog" aria-labelledby="libraryTitle">
+      <div class="modal-header">
+        <h2 class="modal-title" id="libraryTitle">My Texts</h2>
+        <button class="modal-close" id="closeLibrary" aria-label="Close library">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <button class="btn btn-primary new-text-btn" id="newTextBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        New Text
+      </button>
+
+      <div class="library-list" id="libraryList">
+        <div class="library-empty" id="libraryEmpty">
+          <p>No saved texts yet.</p>
+          <p class="form-hint">Texts are saved automatically when you translate them.</p>
+        </div>
       </div>
     </div>
   </div>

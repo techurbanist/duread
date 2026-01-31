@@ -1,7 +1,7 @@
 // DuRead - Chinese Reading Helper
 // Progressive Web App for learning Chinese through reading
 // Version: Bump this when making changes
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 
 (function() {
   'use strict';
@@ -16,14 +16,17 @@ const APP_VERSION = '1.2.0';
     isTranslating: false, // Flag to ensure sequential translation
     translationQueue: [], // Queue of sentences waiting to be translated
     observer: null, // Intersection Observer instance
+    currentTextId: null, // ID of the currently loaded saved text
+    sourceText: '', // Original source text
   };
 
   // ===================
   // Constants
   // ===================
   const DB_NAME = 'duread-db';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const STORE_NAME = 'settings';
+  const TEXTS_STORE_NAME = 'texts';
   const API_URL = 'https://api.anthropic.com/v1/messages';
   const MODEL = 'claude-haiku-4-5-20251001';
   const SESSION_TOKEN_KEY = 'duread-session-token';
@@ -51,6 +54,12 @@ const APP_VERSION = '1.2.0';
     directionBtns: document.querySelectorAll('.direction-btn'),
     toast: document.getElementById('toast'),
     versionTag: document.getElementById('versionTag'),
+    libraryModal: document.getElementById('libraryModal'),
+    libraryBtn: document.getElementById('libraryBtn'),
+    closeLibrary: document.getElementById('closeLibrary'),
+    libraryList: document.getElementById('libraryList'),
+    libraryEmpty: document.getElementById('libraryEmpty'),
+    newTextBtn: document.getElementById('newTextBtn'),
   };
 
   // ===================
@@ -67,6 +76,11 @@ const APP_VERSION = '1.2.0';
         const db = event.target.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: 'key' });
+        }
+        // Add texts store for saved texts (version 2)
+        if (!db.objectStoreNames.contains(TEXTS_STORE_NAME)) {
+          const textsStore = db.createObjectStore(TEXTS_STORE_NAME, { keyPath: 'id' });
+          textsStore.createIndex('updatedAt', 'updatedAt', { unique: false });
         }
       };
     });
@@ -118,6 +132,158 @@ const APP_VERSION = '1.2.0';
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
     });
+  }
+
+  // ===================
+  // Text Persistence
+  // ===================
+  function generateTextId() {
+    return `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  function generateTextTitle(text) {
+    // Use first 50 characters, trimmed at word boundary
+    const maxLen = 50;
+    if (text.length <= maxLen) return text.trim();
+    const trimmed = text.substring(0, maxLen);
+    const lastSpace = trimmed.lastIndexOf(' ');
+    return (lastSpace > 20 ? trimmed.substring(0, lastSpace) : trimmed) + '...';
+  }
+
+  async function saveText(textData) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(TEXTS_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(TEXTS_STORE_NAME);
+      const request = store.put(textData);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(textData.id);
+    });
+  }
+
+  async function getText(id) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(TEXTS_STORE_NAME, 'readonly');
+      const store = tx.objectStore(TEXTS_STORE_NAME);
+      const request = store.get(id);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  }
+
+  async function deleteText(id) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(TEXTS_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(TEXTS_STORE_NAME);
+      const request = store.delete(id);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  async function getAllTexts() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(TEXTS_STORE_NAME, 'readonly');
+      const store = tx.objectStore(TEXTS_STORE_NAME);
+      const index = store.index('updatedAt');
+      const request = index.openCursor(null, 'prev'); // Most recent first
+      const texts = [];
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          texts.push(cursor.value);
+          cursor.continue();
+        } else {
+          resolve(texts);
+        }
+      };
+    });
+  }
+
+  async function saveCurrentText() {
+    if (state.sentences.length === 0) return null;
+
+    const now = Date.now();
+    const isNew = !state.currentTextId;
+    const textData = {
+      id: state.currentTextId || generateTextId(),
+      title: generateTextTitle(state.sourceText),
+      sourceText: state.sourceText,
+      direction: state.direction,
+      sentences: state.sentences.map(s => ({
+        id: s.id,
+        source: s.source,
+        status: s.status,
+        translation: s.translation,
+        pinyin: s.pinyin,
+        words: s.words,
+        error: s.error,
+      })),
+      createdAt: isNew ? now : (await getText(state.currentTextId))?.createdAt || now,
+      updatedAt: now,
+    };
+
+    await saveText(textData);
+    state.currentTextId = textData.id;
+    return textData.id;
+  }
+
+  async function loadSavedText(id) {
+    const textData = await getText(id);
+    if (!textData) {
+      showToast('Text not found', 'error');
+      return false;
+    }
+
+    // Clear current state
+    clearOutput();
+
+    // Restore state
+    state.currentTextId = textData.id;
+    state.sourceText = textData.sourceText;
+    state.direction = textData.direction;
+    state.sentences = textData.sentences;
+
+    // Update direction UI
+    setDirection(textData.direction);
+
+    // Update text input
+    elements.textInput.value = textData.sourceText;
+
+    // Setup observer
+    setupIntersectionObserver();
+
+    // Render all sentence blocks
+    showEmptyState(false);
+    state.sentences.forEach(sentence => {
+      const block = renderSentenceBlock(sentence);
+      elements.outputSection.appendChild(block);
+
+      // Observe pending sentences for lazy translation
+      if (sentence.status === 'pending') {
+        state.observer.observe(block);
+      }
+    });
+
+    return true;
+  }
+
+  function startNewText() {
+    // Clear current text state
+    state.currentTextId = null;
+    state.sourceText = '';
+    clearOutput();
+    elements.textInput.value = '';
+    showEmptyState(true);
+    elements.textInput.focus();
   }
 
   // ===================
@@ -571,6 +737,9 @@ Important instructions:
 
     updateSentenceBlock(sentence);
 
+    // Auto-save after translation completes
+    saveCurrentText().catch(err => console.error('Failed to auto-save:', err));
+
     state.isTranslating = false;
     // Process next in queue
     processTranslationQueue();
@@ -601,6 +770,10 @@ Important instructions:
     // Clear previous output
     clearOutput();
     showEmptyState(false);
+
+    // Reset current text ID for new text (new submission = new saved text)
+    state.currentTextId = null;
+    state.sourceText = text;
 
     // Auto-detect direction if needed
     const detectedLang = detectLanguage(text);
@@ -635,6 +808,9 @@ Important instructions:
 
     // Scroll to top of output
     elements.outputSection.scrollTop = 0;
+
+    // Save initial text state
+    saveCurrentText().catch(err => console.error('Failed to save text:', err));
   }
 
   // ===================
@@ -780,6 +956,116 @@ Important instructions:
     elements.unlockModal.classList.remove('open');
   }
 
+  async function openLibraryModal() {
+    elements.libraryModal.classList.add('open');
+    await renderLibraryList();
+  }
+
+  function closeLibraryModal() {
+    elements.libraryModal.classList.remove('open');
+  }
+
+  function formatRelativeDate(timestamp) {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+
+    return new Date(timestamp).toLocaleDateString();
+  }
+
+  function renderTextCard(textData) {
+    const totalSentences = textData.sentences.length;
+    const translatedSentences = textData.sentences.filter(s => s.status === 'loaded').length;
+    const progress = totalSentences > 0 ? Math.round((translatedSentences / totalSentences) * 100) : 0;
+    const isActive = state.currentTextId === textData.id;
+
+    const card = document.createElement('div');
+    card.className = `text-card${isActive ? ' active' : ''}`;
+    card.dataset.textId = textData.id;
+
+    card.innerHTML = `
+      <div class="text-card-header">
+        <div class="text-card-title">${escapeHtml(textData.title)}</div>
+        <button class="text-card-delete" data-delete-id="${textData.id}" aria-label="Delete text">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+      </div>
+      <div class="text-card-meta">
+        <div class="text-card-progress">
+          <div class="progress-bar">
+            <div class="progress-fill" style="width: ${progress}%"></div>
+          </div>
+          <span>${translatedSentences}/${totalSentences}</span>
+        </div>
+        <span class="text-card-date">${formatRelativeDate(textData.updatedAt)}</span>
+        <span class="text-card-direction">${textData.direction === 'en-zh' ? 'EN→中' : '中→EN'}</span>
+      </div>
+    `;
+
+    return card;
+  }
+
+  async function renderLibraryList() {
+    const texts = await getAllTexts();
+
+    // Clear existing cards (keep empty state element)
+    const existingCards = elements.libraryList.querySelectorAll('.text-card');
+    existingCards.forEach(card => card.remove());
+
+    if (texts.length === 0) {
+      elements.libraryEmpty.style.display = 'block';
+      return;
+    }
+
+    elements.libraryEmpty.style.display = 'none';
+
+    texts.forEach(textData => {
+      const card = renderTextCard(textData);
+      elements.libraryList.appendChild(card);
+    });
+  }
+
+  async function handleTextCardClick(textId) {
+    const success = await loadSavedText(textId);
+    if (success) {
+      closeLibraryModal();
+      showToast('Text loaded', 'success');
+    }
+  }
+
+  async function handleDeleteText(textId, event) {
+    event.stopPropagation(); // Prevent card click
+
+    if (!confirm('Delete this text? This cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await deleteText(textId);
+
+      // If deleting the current text, clear the state
+      if (state.currentTextId === textId) {
+        startNewText();
+      }
+
+      await renderLibraryList();
+      showToast('Text deleted', 'success');
+    } catch (error) {
+      console.error('Failed to delete text:', error);
+      showToast('Failed to delete text', 'error');
+    }
+  }
+
   // ===================
   // Toast Notifications
   // ===================
@@ -835,6 +1121,39 @@ Important instructions:
     elements.unlockModal.addEventListener('click', (e) => {
       if (e.target === elements.unlockModal) {
         closeUnlockModal();
+      }
+    });
+
+    // Library button and modal
+    elements.libraryBtn.addEventListener('click', openLibraryModal);
+    elements.closeLibrary.addEventListener('click', closeLibraryModal);
+
+    elements.libraryModal.addEventListener('click', (e) => {
+      if (e.target === elements.libraryModal) {
+        closeLibraryModal();
+      }
+    });
+
+    // New text button
+    elements.newTextBtn.addEventListener('click', () => {
+      startNewText();
+      closeLibraryModal();
+      showToast('Ready for new text', 'success');
+    });
+
+    // Library list click handling (event delegation)
+    elements.libraryList.addEventListener('click', (e) => {
+      // Handle delete button
+      const deleteBtn = e.target.closest('[data-delete-id]');
+      if (deleteBtn) {
+        handleDeleteText(deleteBtn.dataset.deleteId, e);
+        return;
+      }
+
+      // Handle card click
+      const card = e.target.closest('.text-card');
+      if (card && card.dataset.textId) {
+        handleTextCardClick(card.dataset.textId);
       }
     });
 
